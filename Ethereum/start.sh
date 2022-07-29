@@ -1,0 +1,1 @@
+nohup ./geth --config ./config.toml --datadir ./data    >> eth.out 2>&1 &
