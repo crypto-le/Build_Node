@@ -49,8 +49,11 @@ HTTPHost = "0.0.0.0"
 HTTPCors = ["*"]
 HTTPVirtualHosts = ["*"]
 HTTPModules = ["net", "web3", "eth","admin","txpool"]
+WSHost = "0.0.0.0"
 WSPort = 29901
 WSModules = ["net", "web3", "eth","admin","txpool"]
+WSOrigins  = ["*"]
+
 
 [Node.HTTPTimeouts]
 ReadTimeout = 30000000000
@@ -59,7 +62,7 @@ WriteTimeout = 30000000000
 IdleTimeout = 120000000000
 
 [Node.P2P]
-MaxPeers = 25
+MaxPeers = 50
 NoDiscovery = false
 StaticNodes = []
 TrustedNodes = []
