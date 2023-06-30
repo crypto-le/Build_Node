@@ -1,1 +1,143 @@
+CPU：16核
+内存：32G
+SSD：4T以上 (需要做事件处理)
+带宽：100M
+如果是超级代表搭建产块的全节点，建议配置是 CPU：32核， 内存：64G
 
+1.下载区块数据文件
+https://cn.developers.tron.network/docs/main-net-database-snapshots
+这里我建议下载新加坡的数据源，勾选不包含内部交易的这个。自己选最新的日期进行下载
+
+2.解压数据
+tar -zxvf FullNode_output-directory.tgz /tron  （/tron 是目录自己指定目录哦）
+
+
+3.安装运行环境 是jdk的环境 1.8   一定要是oracle版本
+ 
+
+4.下载节点程序包 选FullNode.jar （无需自己编译）
+https://github.com/tronprotocol/java-tron/releases
+wget https://github.com/tronprotocol/java-tron/releases/download/GreatVoyage-v4.5.1/FullNode.jar
+
+5.修改config文件的端口号（这里我直接吧config粘贴出来了，就不用去github下载了，应为下载喜爱，需要修改好多参数）
+https://github.com/tronprotocol/tron-deployment/blob/master/EVENT_main_net_config.conf
+
+    http {
+            fullNodePort = 41752  节点http端口
+            solidityPort = 41753
+    }
+
+6.运行节点程序
+-XX:+UseConcMarkSweepGC ：指定并行垃圾回收。要放在 -jar 参数前面，不能放在最后面。
+-Xmx ：JVM堆的最大值，可以设置成物理内存的80%
+
+java -Xmx24g -XX:+UseConcMarkSweepGC -jar FullNode.jar -c main_net_config.conf
+
+
+---------------------------------------------------------------------
+0.自己的服务器需要安装jdk1.8 一定要是oracle版本，不要安装open的了 安装 gradlew 编译环境
+1.编译插件，获取mongodb插件
+#部署
+git clone https://github.com/tronprotocol/event-plugin.git
+cd eventplugin
+./gradlew build
+
+编译后再 eventplugin/build/plugins 目录下有量文件一个是 kafka 一个是 mongodb。我们选用mongodb 。
+
+main_net_config.conf 需要配置这个mongodb的插件地址，我已经帮你配置示例了，你改成自己的地址。
+
+要修改的都在conf最下面。其他的不用改，我都帮你配好了，就这个地址改一下 核对好自己的来
+path: "plugin-kafka-1.0.0.zip" 或 "plugin-mongodb-1.0.0.zip"的绝对路径
+server: 服务器地址+端口号（mongodb的）
+dbconfig: mongodb的配置，按例子中的来
+topics: 目前支持四种事件类型 block, transaction, contract log and contract event
+triggerName: 触发类型，可以修改
+enable: fasle就是禁用，true开启
+topic: mongodb接收事件的集合
+
+2.部署MongoDB （mongodb自己设置自启，启动节点前，一定要让mongodb运行）
+#1、安装
+mkdir /home/java-tron
+cd /home/java-tron
+curl -O https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-4.0.4.tgz
+tar zxvf mongodb-linux-x86_64-4.0.4.tgz
+mv mongodb-linux-x86_64-4.0.4 mongodb
+
+#2、设置环境变量 
+
+export MONGOPATH=/home/java-tron/mongodb/
+export PATH=$PATH:$MONGOPATH/bin
+
+#3、mongodb配置 
+
+mkdir -p /home/java-tron/mongodb/{log,data}
+cd /home/java-tron/mongodb/log/ && touch mongodb.log && cd
+vim mgdb.conf
+
+把创建的数据和日志文件夹，写到配置文件中（绝对路径）
+配置文件示例：
+
+dbpath=/home/java-tron/mongodb/data
+logpath=/home/java-tron/mongodb/log/mongodb.log
+port=27017
+logappend=true
+fork=true
+bind_ip=0.0.0.0
+auth=true
+wiredTigerCacheSizeGB=2
+
+注意：bind_ip必须配置为0.0.0.0，否则将拒绝远程连接。
+wiredTigerCacheSizeGB，必须配置为防止OOM
+
+#4、启动mongodb
+mongod --config ./mgdb.conf &
+
+#5、创建管理员命令
+mongo
+use admin
+db.createUser({user:"root",pwd:"admin",roles:[{role:"root",db:"admin"}]})
+
+#6、创建db eventlog和账户命令
+db.auth("root", "admin")
+use eventlog
+db.createUser({user:"tron",pwd:"123456",roles:[{role:"dbOwner",db:"eventlog"}]})
+
+3.部署Tron Event Query Service
+#1、下载源码
+git clone https://github.com/tronprotocol/tron-eventquery.git cd troneventquery
+
+#2、构建命令
+wget https://mirrors.cnnic.cn/apache/maven/maven-3/3.5.4/binaries/apache-maven-3.5.4-bin.tar.gz --no-check-certificate
+tar zxvf apache-maven-3.5.4-bin.tar.gz
+export M2_HOME=$HOME/maven/apache-maven-3.5.4
+export PATH=$PATH:$M2_HOME/bin
+mvn --version
+mvn package
+命令执行成功后，会在troneventquery/target下生成jar包，还有生成配置文件，路径是troneventquery/config.conf ，配置内容为：
+mongo.host=IP
+mongo.port=27017
+mongo.dbname=eventlog
+mongo.username=tron
+mongo.password=123456
+mongo.connectionsPerHost=8
+mongo.threadsAllowedToBlockForConnectionMultiplier=4
+#3、启动tron event query service
+sh troneventquery/deploy.sh
+sh troneventquery/insertIndex.sh
+
+默认端口8080，如果要改，修改脚本troneventquery/deploy.sh：
+nohup java -jar -Dserver.port=8081 target/troneventquery-1.0.0-SNAPSHOT.jar 2>&1 &
+
+
+启动和验证
+#1、Fullnode的启动命令
+java -jar FullNode.jar -c config.conf --es
+#注：在启动全节点前要先启动mongodb。
+#全节点的安装参考：https://github.com/tronprotocol/java-tron/blob/develop/build.md
+
+#2、验证插件加载
+tail -f logs/tron.log |grep -i eventplugin
+#出现下方字样即成功
+#o.t.c.l.EventPluginLoader 'your plugin path/plugin-kafka-1.0.0.zip' loaded
+
+使用mongodb同步集成事件处理可以，设置在tronlink中，也可以根据tron的api直接调用某一个合约区块范围内的事件。
